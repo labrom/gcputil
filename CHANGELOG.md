@@ -1,3 +1,11 @@
+## 0.2.0
+
+- Add optional authenticated clients to Cloud KMS encryption and decryption
+  helpers.
+- Add optional additional authenticated data support to Cloud KMS encryption
+  and decryption helpers.
+- Simplify Cloud KMS request construction.
+
 ## 0.1.0
 
 - Initial release.

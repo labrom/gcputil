@@ -6,6 +6,9 @@ import 'package:googleapis/secretmanager/v1.dart';
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart';
 
+const _metadataBaseUrl = 'http://metadata.google.internal/computeMetadata/v1';
+const _metadataHeaders = {'Metadata-Flavor': 'Google'};
+
 /// Retrieves a secret from the platform's secret manager.
 ///
 /// If the secret is exposed in an environment variable with the same name,
@@ -30,31 +33,38 @@ Future<String> secret(String name) async {
 }
 
 /// Encrypts a value using Google Cloud KMS.
-Future<String?> encrypt(String value, EncryptionKey key) async {
-  final client = await clientViaMetadataServer();
-  final kmsApi = CloudKMSApi(client);
-  final keyPath =
-      'projects/${await projectId}/locations/${key.region}/keyRings/${key.ring}/cryptoKeys/${key.name}';
-  final base64Bytes = base64.encode(utf8.encode(value));
-  final encryptRequest = EncryptRequest.fromJson({
-    'name': keyPath,
-    'plaintext': base64Bytes,
-  });
+Future<String?> encrypt(
+  String value,
+  EncryptionKey key, {
+  AuthClient? client,
+  String? additionalAuthenticatedData,
+}) async {
+  final authClient = client ?? await clientViaMetadataServer();
+  final kmsApi = CloudKMSApi(authClient);
+  final keyPath = await _keyPath(key);
+  final encryptRequest = EncryptRequest(
+    plaintext: _base64Encode(value),
+    additionalAuthenticatedData: _base64Encode(additionalAuthenticatedData),
+  );
   final encryptResponse = await kmsApi.projects.locations.keyRings.cryptoKeys
       .encrypt(encryptRequest, keyPath);
   return encryptResponse.ciphertext;
 }
 
 /// Decrypts a value using Google Cloud KMS.
-Future<String?> decrypt(String cipher, EncryptionKey key) async {
-  final client = await clientViaMetadataServer();
-  final kmsApi = CloudKMSApi(client);
-  final keyPath =
-      'projects/${await projectId}/locations/${key.region}/keyRings/${key.ring}/cryptoKeys/${key.name}';
-  final decryptRequest = DecryptRequest.fromJson({
-    'name': keyPath,
-    'ciphertext': cipher,
-  });
+Future<String?> decrypt(
+  String cipher,
+  EncryptionKey key, {
+  AuthClient? client,
+  String? additionalAuthenticatedData,
+}) async {
+  final authClient = client ?? await clientViaMetadataServer();
+  final kmsApi = CloudKMSApi(authClient);
+  final keyPath = await _keyPath(key);
+  final decryptRequest = DecryptRequest(
+    ciphertext: cipher,
+    additionalAuthenticatedData: _base64Encode(additionalAuthenticatedData),
+  );
   final decryptResponse = await kmsApi.projects.locations.keyRings.cryptoKeys
       .decrypt(decryptRequest, keyPath);
   if (decryptResponse.plaintext == null) {
@@ -64,45 +74,33 @@ Future<String?> decrypt(String cipher, EncryptionKey key) async {
 }
 
 /// Gets the current Google Cloud project's ID from the metadata service.
-Future<String> get projectId async => (await get(
-  Uri.parse(
-    'http://metadata.google.internal/computeMetadata/v1/project/project-id',
-  ),
-  headers: {'Metadata-Flavor': 'Google'},
-)).body;
+Future<String> get projectId => _metadataValue('project/project-id');
 
 /// Gets the runtime service account email from the metadata service.
-Future<String> get runtimeServiceAccountEmail async {
-  final client = HttpClient();
-  try {
-    final request = await client.getUrl(
-      Uri.parse(
-        'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email',
-      ),
+Future<String> get runtimeServiceAccountEmail =>
+    _metadataValue('instance/service-accounts/default/email');
+
+Future<String> _metadataValue(String path) async {
+  final response = await get(
+    Uri.parse('$_metadataBaseUrl/$path'),
+    headers: _metadataHeaders,
+  );
+  final value = response.body.trim();
+  if (response.statusCode != HttpStatus.ok || value.isEmpty) {
+    throw StateError(
+      'Failed to resolve Google Cloud metadata "$path": '
+      '${response.statusCode} ${response.body}',
     );
-    request.headers.set('Metadata-Flavor', 'Google');
-
-    final response = await request.close();
-    final body = await utf8.decoder.bind(response).join();
-    if (response.statusCode != HttpStatus.ok) {
-      throw StateError(
-        'Failed to resolve runtime service account email: '
-        '${response.statusCode} $body',
-      );
-    }
-
-    final email = body.trim();
-    if (email.isEmpty) {
-      throw StateError(
-        'Runtime service account email metadata response was empty.',
-      );
-    }
-
-    return email;
-  } finally {
-    client.close(force: true);
   }
+
+  return value;
 }
+
+Future<String> _keyPath(EncryptionKey key) async =>
+    'projects/${await projectId}/locations/${key.region}/keyRings/${key.ring}/cryptoKeys/${key.name}';
+
+String? _base64Encode(String? value) =>
+    value == null ? null : base64.encode(utf8.encode(value));
 
 /// A Google Cloud project.
 class Project {
