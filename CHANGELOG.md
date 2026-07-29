@@ -1,3 +1,8 @@
+## 0.3.0
+
+- Cache project ID and runtime service account metadata for the lifetime of the
+  process, while allowing retries after metadata request failures.
+
 ## 0.2.0
 
 - Add optional authenticated clients to Cloud KMS encryption and decryption

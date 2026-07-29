@@ -8,6 +8,7 @@ import 'package:http/http.dart';
 
 const _metadataBaseUrl = 'http://metadata.google.internal/computeMetadata/v1';
 const _metadataHeaders = {'Metadata-Flavor': 'Google'};
+final _metadataValues = <String, Future<String>>{};
 
 /// Retrieves a secret from the platform's secret manager.
 ///
@@ -74,13 +75,23 @@ Future<String?> decrypt(
 }
 
 /// Gets the current Google Cloud project's ID from the metadata service.
-Future<String> get projectId => _metadataValue('project/project-id');
+Future<String> get projectId => _cachedMetadataValue('project/project-id');
 
 /// Gets the runtime service account email from the metadata service.
 Future<String> get runtimeServiceAccountEmail =>
-    _metadataValue('instance/service-accounts/default/email');
+    _cachedMetadataValue('instance/service-accounts/default/email');
 
-Future<String> _metadataValue(String path) async {
+Future<String> _cachedMetadataValue(String path) async {
+  final value = _metadataValues[path] ??= _fetchMetadataValue(path);
+  try {
+    return await value;
+  } catch (_) {
+    _metadataValues.remove(path);
+    rethrow;
+  }
+}
+
+Future<String> _fetchMetadataValue(String path) async {
   final response = await get(
     Uri.parse('$_metadataBaseUrl/$path'),
     headers: _metadataHeaders,

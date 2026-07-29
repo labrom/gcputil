@@ -1,6 +1,6 @@
 name: gcputil
 description: Utilities for Dart services running on Google Cloud, including metadata, Secret Manager, Cloud KMS, and Cloud Tasks helpers.
-version: 0.2.0
+version: 0.3.0
 repository: https://github.com/labrom/gcputil
 issue_tracker: https://github.com/labrom/gcputil/issues
 topics:
